@@ -98,6 +98,25 @@ If deploying to a live production server or VPS:
 
 ---
 
+## 📜 Terms of Use & Responsible Conduct
+
+This project is an open-source educational utility intended to assist students, interns, and job-seekers in locating legitimate corporate placements. By using this dashboard, you agree to:
+
+* **No Spamming or Bulk Solicitation**: Contact details must never be harvested or used for mass cold-marketing, unsolicited commercial emails, automated sales pitches, or spam lists.
+* **No Robocalling or Harassment**: Phone numbers may not be used for automated telemarketing, mass SMS broadcasting, or phone harassment.
+* **No Bot Swarms or API Abuse**: Do not deploy automated spiders, crawlers, or high-concurrency bot swarms against this dashboard or upstream OpenStreetMap Overpass and Nominatim APIs.
+* **Independent Verification**: Company records are compiled automatically from public OSM tags and web sources. Information may not always be 100% accurate; users must independently verify company details prior to visiting or sending application paperwork.
+
+---
+
+## 🔒 Privacy & Cookies
+
+* **Zero Login Friction**: No accounts, passwords, or personal identity details are required or collected.
+* **No Database Logging of Searches**: Search coordinates and queries are handled in real-time in-memory and are never stored in the database.
+* **Anonymous Session Isolation**: A single anonymous cookie (`locator_session_id`) containing a random 64-character token is used strictly to isolate your saved leads from other visitors. It contains zero personal information and is never shared with third-party trackers.
+
+---
+
 ## 📄 License
 
 This project is licensed under the [MIT License](./LICENSE) — Copyright (c) 2026 Daniel Salcedo.
