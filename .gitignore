@@ -1,0 +1,16 @@
+# Ignored legacy / client-side versions
+client-side-ver/
+
+# Operating System files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+
+# Editor & IDE settings
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
