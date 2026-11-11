@@ -1,4 +1,21 @@
 <?php
+// Anonymous Cryptographically Secure Session Token Handling
+$cookieName = 'locator_session_id';
+if (empty($_COOKIE[$cookieName]) || !preg_match('/^[a-f0-9]{64}$/', $_COOKIE[$cookieName])) {
+    $sessionId = bin2hex(random_bytes(32));
+    $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (isset($_SERVER['SERVER_PORT']) && $_SERVER['SERVER_PORT'] == 443);
+    setcookie($cookieName, $sessionId, [
+        'expires'  => time() + (86400 * 365), // 1 year persistence
+        'path'     => '/',
+        'secure'   => $isHttps,
+        'httponly' => true,
+        'samesite' => 'Lax'
+    ]);
+    $_COOKIE[$cookieName] = $sessionId;
+} else {
+    $sessionId = $_COOKIE[$cookieName];
+}
+
 // Database Configuration
 $host = 'localhost';
 $db   = 'company_locator';
@@ -19,7 +36,8 @@ try {
     $pdo->exec("USE `$db` ");
     $pdo->exec("CREATE TABLE IF NOT EXISTS companies (
         id INT AUTO_INCREMENT PRIMARY KEY,
-        place_id VARCHAR(255) UNIQUE,
+        session_id VARCHAR(64) NOT NULL DEFAULT '',
+        place_id VARCHAR(255) NOT NULL,
         name VARCHAR(255) NOT NULL,
         latitude DECIMAL(10, 8) NOT NULL,
         longitude DECIMAL(11, 8) NOT NULL,
@@ -28,10 +46,36 @@ try {
         email VARCHAR(100),
         website VARCHAR(255),
         tag VARCHAR(50) DEFAULT 'Unassigned',
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY unique_session_place (session_id, place_id)
     )");
     
-    // Auto-migrate schema updates
+    // Auto-migrate schema updates for multi-tenancy & session isolation
+    $columns = $pdo->query("SHOW COLUMNS FROM companies LIKE 'session_id'")->fetchAll();
+    if (empty($columns)) {
+        $pdo->exec("ALTER TABLE companies ADD COLUMN session_id VARCHAR(64) NOT NULL DEFAULT '' AFTER id");
+    }
+
+    // Replace legacy single-column place_id unique index with composite (session_id, place_id) index
+    $indexes = $pdo->query("SHOW INDEX FROM companies")->fetchAll();
+    $hasSessionPlaceIndex = false;
+    $hasLegacyPlaceIdIndex = false;
+    foreach ($indexes as $idx) {
+        if ($idx['Key_name'] === 'unique_session_place') {
+            $hasSessionPlaceIndex = true;
+        }
+        if ($idx['Key_name'] === 'place_id' && $idx['Non_unique'] == 0) {
+            $hasLegacyPlaceIdIndex = true;
+        }
+    }
+
+    if ($hasLegacyPlaceIdIndex) {
+        $pdo->exec("ALTER TABLE companies DROP INDEX `place_id`");
+    }
+    if (!$hasSessionPlaceIndex) {
+        $pdo->exec("ALTER TABLE companies ADD UNIQUE KEY `unique_session_place` (session_id, place_id)");
+    }
+
     $pdo->exec("ALTER TABLE companies ADD COLUMN IF NOT EXISTS tag VARCHAR(50) DEFAULT 'Unassigned'");
     $pdo->exec("ALTER TABLE companies ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
 } catch (\PDOException $e) {
@@ -48,7 +92,8 @@ if ($action === 'export_csv') {
     $output = fopen('php://output', 'w');
     fputcsv($output, ['ID', 'Place ID', 'Company Name', 'Latitude', 'Longitude', 'Address', 'Phone', 'Email', 'Website', 'Tag', 'Updated At']);
     
-    $stmt = $pdo->query("SELECT * FROM companies ORDER BY updated_at DESC");
+    $stmt = $pdo->prepare("SELECT * FROM companies WHERE session_id = ? ORDER BY updated_at DESC");
+    $stmt->execute([$sessionId]);
     while ($row = $stmt->fetch()) {
         fputcsv($output, [
             $row['id'], $row['place_id'], $row['name'], $row['latitude'], 
@@ -255,10 +300,11 @@ if ($action === 'fetch_leads') {
     try {
         $tagFilter = $_GET['tag'] ?? 'ALL';
         if ($tagFilter !== 'ALL' && !empty($tagFilter)) {
-            $stmt = $pdo->prepare("SELECT id, place_id, name, latitude, longitude, address, phone, email, website, COALESCE(tag, 'Unassigned') as tag FROM companies WHERE tag = ? ORDER BY updated_at DESC");
-            $stmt->execute([$tagFilter]);
+            $stmt = $pdo->prepare("SELECT id, place_id, name, latitude, longitude, address, phone, email, website, COALESCE(tag, 'Unassigned') as tag FROM companies WHERE session_id = ? AND tag = ? ORDER BY updated_at DESC");
+            $stmt->execute([$sessionId, $tagFilter]);
         } else {
-            $stmt = $pdo->query("SELECT id, place_id, name, latitude, longitude, address, phone, email, website, COALESCE(tag, 'Unassigned') as tag FROM companies ORDER BY updated_at DESC");
+            $stmt = $pdo->prepare("SELECT id, place_id, name, latitude, longitude, address, phone, email, website, COALESCE(tag, 'Unassigned') as tag FROM companies WHERE session_id = ? ORDER BY updated_at DESC");
+            $stmt->execute([$sessionId]);
         }
         $leads = $stmt->fetchAll(PDO::FETCH_ASSOC);
         echo json_encode(['status' => 'success', 'data' => $leads]);
@@ -280,29 +326,42 @@ if ($action === 'update_tag') {
     }
 
     try {
-        $stmt = $pdo->prepare("INSERT INTO companies (place_id, name, latitude, longitude, address, phone, email, website, tag)
-            VALUES (:place_id, :name, :lat, :lng, :address, :phone, :email, :website, :tag)
-            ON DUPLICATE KEY UPDATE 
-                tag = VALUES(tag), 
-                name = VALUES(name), 
-                latitude = VALUES(latitude),
-                longitude = VALUES(longitude),
-                address = VALUES(address),
-                phone = VALUES(phone), 
-                email = VALUES(email), 
-                website = VALUES(website)");
+        // Distinguish between a status tag change vs a full company insert
+        $isTagOnly = !isset($data['name']) && !isset($data['address']);
+        
+        if ($isTagOnly) {
+            $stmt = $pdo->prepare("UPDATE companies SET tag = :tag WHERE session_id = :session_id AND place_id = :place_id");
+            $stmt->execute([
+                ':tag'        => $data['tag'],
+                ':session_id' => $sessionId,
+                ':place_id'   => $data['place_id']
+            ]);
+        } else {
+            $stmt = $pdo->prepare("INSERT INTO companies (session_id, place_id, name, latitude, longitude, address, phone, email, website, tag)
+                VALUES (:session_id, :place_id, :name, :lat, :lng, :address, :phone, :email, :website, :tag)
+                ON DUPLICATE KEY UPDATE 
+                    tag = VALUES(tag), 
+                    name = VALUES(name), 
+                    latitude = VALUES(latitude),
+                    longitude = VALUES(longitude),
+                    address = VALUES(address),
+                    phone = VALUES(phone), 
+                    email = VALUES(email), 
+                    website = VALUES(website)");
 
-        $stmt->execute([
-            ':place_id' => $data['place_id'],
-            ':name'     => !empty($data['name']) ? $data['name'] : 'Unknown Company',
-            ':lat'      => floatval($data['latitude'] ?? $data['lat'] ?? 0),
-            ':lng'      => floatval($data['longitude'] ?? $data['lng'] ?? 0),
-            ':address'  => $data['address'] ?? '',
-            ':phone'    => $data['phone'] ?? 'N/A',
-            ':email'    => $data['email'] ?? 'N/A',
-            ':website'  => $data['website'] ?? '',
-            ':tag'      => $data['tag']
-        ]);
+            $stmt->execute([
+                ':session_id' => $sessionId,
+                ':place_id'   => $data['place_id'],
+                ':name'       => !empty($data['name']) ? $data['name'] : 'Unknown Company',
+                ':lat'        => floatval($data['latitude'] ?? $data['lat'] ?? 0),
+                ':lng'        => floatval($data['longitude'] ?? $data['lng'] ?? 0),
+                ':address'    => $data['address'] ?? '',
+                ':phone'      => $data['phone'] ?? 'N/A',
+                ':email'      => $data['email'] ?? 'N/A',
+                ':website'    => $data['website'] ?? '',
+                ':tag'        => $data['tag']
+            ]);
+        }
 
         echo json_encode(['status' => 'success', 'message' => 'Record and tag stored successfully']);
     } catch (\PDOException $e) {
@@ -323,8 +382,8 @@ if ($action === 'delete_lead') {
     }
 
     try {
-        $stmt = $pdo->prepare("DELETE FROM companies WHERE place_id = ?");
-        $stmt->execute([$data['place_id']]);
+        $stmt = $pdo->prepare("DELETE FROM companies WHERE session_id = ? AND place_id = ?");
+        $stmt->execute([$sessionId, $data['place_id']]);
         echo json_encode(['status' => 'success', 'message' => 'Lead deleted successfully']);
     } catch (\PDOException $e) {
         http_response_code(500);
@@ -980,6 +1039,207 @@ function parsePhoneFromHtml($html) {
         .company-marker-icon-active {
             filter: hue-rotate(260deg) saturate(300%) drop-shadow(0 2px 6px rgba(34,197,94,0.8));
         }
+
+        /* Hero Center & Bottom Footer */
+        .hero-center-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            flex: 1;
+        }
+        .hero-footer {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            padding: 16px 20px 22px;
+            z-index: 10;
+        }
+        .hero-disclaimer-fineprint {
+            font-size: 0.75rem;
+            color: #64748b;
+            text-align: center;
+            max-width: 680px;
+            line-height: 1.4;
+        }
+        .hero-footer-links {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            font-size: 0.8rem;
+            color: #94a3b8;
+        }
+        .footer-btn-link {
+            background: none;
+            border: none;
+            color: #38bdf8;
+            font-size: 0.8rem;
+            cursor: pointer;
+            text-decoration: none !important;
+            padding: 0;
+            transition: color 0.2s;
+        }
+        .footer-btn-link:hover {
+            color: #7dd3fc;
+            text-decoration: none !important;
+        }
+        .footer-link {
+            color: #38bdf8;
+            text-decoration: none !important;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 0.8rem;
+            transition: color 0.2s;
+        }
+        .footer-link:hover {
+            color: #7dd3fc;
+            text-decoration: none !important;
+        }
+        .footer-separator {
+            color: #475569;
+            user-select: none;
+        }
+        .footer-location-text {
+            color: #94a3b8;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 0.8rem;
+        }
+        .footer-location-text i {
+            color: #38bdf8;
+        }
+        #user-rough-location {
+            color: #f1f5f9;
+            font-weight: 500;
+        }
+
+        /* Right Sliding Drawer Modal */
+        .right-drawer-backdrop {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(15, 23, 42, 0.7);
+            backdrop-filter: blur(4px);
+            z-index: 20000;
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+        }
+        .right-drawer-backdrop.active {
+            opacity: 1;
+            visibility: visible;
+            pointer-events: auto;
+        }
+
+        .right-drawer {
+            position: fixed;
+            top: 0;
+            right: 0;
+            width: 520px;
+            max-width: 92vw;
+            height: 100vh;
+            background: #1e293b;
+            border-left: 1px solid #334155;
+            box-shadow: -8px 0 30px rgba(0, 0, 0, 0.6);
+            z-index: 20001;
+            display: flex;
+            flex-direction: column;
+            transform: translateX(100%);
+            transition: transform 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .right-drawer.active {
+            transform: translateX(0);
+        }
+
+        .right-drawer-header {
+            height: 56px;
+            padding: 0 20px;
+            background: #0f172a;
+            border-bottom: 1px solid #334155;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-shrink: 0;
+        }
+        .right-drawer-title {
+            font-size: 1.05rem;
+            font-weight: 650;
+            color: #38bdf8;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .btn-close-drawer {
+            background: transparent;
+            border: none;
+            color: #94a3b8;
+            font-size: 1.25rem;
+            cursor: pointer;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+            transition: background 0.2s, color 0.2s;
+        }
+        .btn-close-drawer:hover {
+            background: #334155;
+            color: #f8fafc;
+        }
+
+        .right-drawer-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px;
+            color: #cbd5e1;
+            font-size: 0.88rem;
+            line-height: 1.65;
+        }
+        .right-drawer-body h4 {
+            color: #f8fafc;
+            font-size: 0.95rem;
+            margin: 18px 0 8px;
+            font-weight: 600;
+        }
+        .right-drawer-body h4:first-child {
+            margin-top: 0;
+        }
+        .right-drawer-body p {
+            margin-bottom: 12px;
+            color: #94a3b8;
+        }
+        .right-drawer-body ul {
+            margin-left: 20px;
+            margin-bottom: 14px;
+        }
+        .right-drawer-body li {
+            margin-bottom: 6px;
+            color: #cbd5e1;
+        }
+        .right-drawer-body strong {
+            color: #f1f5f9;
+        }
+        .drawer-badge-callout {
+            background: rgba(2, 132, 199, 0.12);
+            border-left: 3px solid #38bdf8;
+            padding: 10px 14px;
+            border-radius: 0 4px 4px 0;
+            margin-bottom: 16px;
+            font-size: 0.82rem;
+            color: #94a3b8;
+        }
     </style>
 </head>
 <body>
@@ -990,9 +1250,16 @@ function parsePhoneFromHtml($html) {
         <img src="industry-solid-full.svg" alt="Industry Icon" class="header-icon-svg" id="header-svg-img"> OSM Industries Locator
     </div>
     <div class="nav-actions">
+        <button type="button" class="btn btn-icon-only" onclick="openRightDrawer('terms')" title="Terms of Use">
+            <i class="fa-solid fa-file-contract"></i>
+        </button>
+        <button type="button" class="btn btn-icon-only" onclick="openRightDrawer('privacy')" title="Privacy Policy & Cookies">
+            <i class="fa-solid fa-shield-halved"></i>
+        </button>
         <button id="btn-toggle-layers" class="btn" style="background:#334155;" onclick="toggleMapLayersControl()" title="Change Map Tiles">
             <i class="fa-solid fa-layer-group"></i> Map Layers
         </button>
+        
         <!-- Custom Layer Options Dropdown Menu -->
         <div id="custom-layer-menu"></div>
     </div>
@@ -1001,24 +1268,43 @@ function parsePhoneFromHtml($html) {
 <div id="main-container">
     <!-- Main landing search overlay view -->
     <div id="hero-overlay">
-        <div class="hero-brand">
-            <img src="industry-solid-full.svg" alt="Industry Icon"> OSM Industries Locator
-        </div>
-        <div class="hero-search-bar">
-            <div class="hero-input-wrapper">
-                <button type="button" class="hero-gps-btn" onclick="getCurrentLocationAndSearch(true)" title="Use Exact High-Precision Device GPS">
-                    <i class="fa-solid fa-location-crosshairs"></i>
-                </button>
-                <input type="text" id="heroAddressInput" class="hero-address-input" placeholder="Locate by City/Address/Coordinates..." onkeypress="if(event.key==='Enter') executeHeroSearch();">
+        <div class="hero-center-content">
+            <div class="hero-brand">
+                <img src="industry-solid-full.svg" alt="Industry Icon"> OSM Industries Locator
             </div>
-            <input type="number" id="heroRadiusInput" class="hero-radius-input" value="3000" min="500" step="500" placeholder="Radius (m)">
-            <button type="button" class="hero-search-btn" onclick="executeHeroSearch()" title="Search Area">
-                <i class="fa-solid fa-location-arrow"></i>
-            </button>
+            <div class="hero-search-bar">
+                <div class="hero-input-wrapper">
+                    <button type="button" class="hero-gps-btn" onclick="getCurrentLocationAndSearch(true)" title="Use Exact High-Precision Device GPS">
+                        <i class="fa-solid fa-location-crosshairs"></i>
+                    </button>
+                    <input type="text" id="heroAddressInput" class="hero-address-input" placeholder="Locate by City/Address/Coordinates..." onkeypress="if(event.key==='Enter') executeHeroSearch();">
+                </div>
+                <input type="number" id="heroRadiusInput" class="hero-radius-input" value="3000" min="500" step="500" placeholder="Radius (m)">
+                <button type="button" class="hero-search-btn" onclick="executeHeroSearch()" title="Search Area">
+                    <i class="fa-solid fa-location-arrow"></i>
+                </button>
+            </div>
+            <div id="heroStatusMessage" class="hero-status-message"></div>
         </div>
-        <div id="heroStatusMessage" class="hero-status-message"></div>
-        <div class="hero-disclaimer-fineprint">
-            <b>Note:</b> <i>Data displayed is gathered automatically. Information (contact numbers/email) <b>may not be 100% accurate.</b></i>
+
+        <!-- Footer fineprint and footer links placed on lower bottom center -->
+        <div id="hero-footer" class="hero-footer">
+            <div class="hero-disclaimer-fineprint">
+                <b>Note:</b> <i>Data displayed is gathered automatically from OpenStreetMap & public web sources. Contact numbers and email <b>may not be 100% accurate.</b></i>
+            </div>
+            <div class="hero-footer-links">
+                <button type="button" class="footer-btn-link" onclick="openRightDrawer('terms')">Terms of Use</button>
+                <span class="footer-separator">•</span>
+                <button type="button" class="footer-btn-link" onclick="openRightDrawer('privacy')">Privacy Policy & Cookies</button>
+                <span class="footer-separator">•</span>
+                <a href="https://github.com/dnsalcedo01/osm-industries-locator" target="_blank" rel="noopener noreferrer" class="footer-link">
+                    <i class="fa-brands fa-github"></i> Self-Host It!
+                </a>
+                <span class="footer-separator">•</span>
+                <span class="footer-location-text" id="footer-location-indicator">
+                    <i class="fa-solid fa-location-dot"></i> Your location: <span id="user-rough-location">Detecting...</span>
+                </span>
+            </div>
         </div>
     </div>
 
@@ -1892,10 +2178,150 @@ function parsePhoneFromHtml($html) {
             .replace(/\r/g, '\\r');
     }
 
+    function preloadSavedLeadIds() {
+        fetch('index.php?action=fetch_leads&tag=ALL')
+            .then(res => res.json())
+            .then(data => {
+                if (data && data.data && Array.isArray(data.data)) {
+                    savedLeadIds.clear();
+                    data.data.forEach(lead => savedLeadIds.add(lead.place_id));
+                }
+            })
+            .catch(() => {});
+    }
+
+    function openRightDrawer(type) {
+        const drawer = document.getElementById('right-drawer');
+        const backdrop = document.getElementById('right-drawer-backdrop');
+        const titleEl = document.getElementById('right-drawer-title');
+        const bodyEl = document.getElementById('right-drawer-body');
+        if (!drawer || !backdrop || !titleEl || !bodyEl) return;
+
+        if (type === 'terms') {
+            titleEl.innerHTML = '<i class="fa-solid fa-file-contract"></i> Terms of Use';
+            bodyEl.innerHTML = `
+                <div class="drawer-badge-callout">
+                    <i class="fa-solid fa-circle-info"></i> <strong>Academic & Professional Utility:</strong> This platform is designed to assist students and trainees in finding legitimate companies for Supervised In-Plant Training (SIPT) and On-the-Job Training (OJT).
+                </div>
+                <h4>1. Intended & Permitted Purpose</h4>
+                <p>This service is provided strictly for educational and personal career advancement—specifically enabling students to research industrial plants, tech offices, and factories within their locale for internship opportunities.</p>
+                <h4>2. Prohibited & Unlawful Activities</h4>
+                <p>By using this service, you explicitly agree not to harvest or use extracted company contacts for abusive or illegal purposes, including:</p>
+                <ul>
+                    <li><strong>Bulk Commercial Solicitation & Spam:</strong> Harvesting extracted email addresses or phone numbers for mass cold sales pitches, commercial blasts, affiliate marketing, or unsolicited newsletters.</li>
+                    <li><strong>Telemarketing & Robocalling:</strong> Utilizing phone numbers for automated robocalls, phone harassment, or unauthorized bulk SMS broadcasting.</li>
+                    <li><strong>Phishing & Fraudulent Inquiries:</strong> Sending malicious attachments, deceptive employment inquiries, or spoofing institutional credentials.</li>
+                    <li><strong>Trespassing & Unlawful Surveillance:</strong> Using facility coordinates for unauthorized trespassing, harassment, or unlawful tracking.</li>
+                </ul>
+                <h4>3. Anti-Abuse & Bot Swarming Restrictions</h4>
+                <p>You agree not to abuse or disrupt this web application or its connected upstream services:</p>
+                <ul>
+                    <li><strong>No Bot Swarms:</strong> You may not deploy automated scrapers, headless bots, or high-concurrency crawl scripts against this web dashboard or upstream OpenStreetMap APIs.</li>
+                    <li><strong>Respecting Upstream FOSS APIs:</strong> OpenStreetMap Overpass and Nominatim are community-funded public resources. Flooding or attempting to bypass API rate limits is strictly forbidden.</li>
+                </ul>
+                <h4>4. Data Accuracy Disclaimer</h4>
+                <p>Information presented is aggregated automatically from OpenStreetMap community tags and public web pages. <strong>Data may be outdated, incomplete, or inaccurate.</strong> Users are required to independently verify company information before visiting facilities or sending confidential application files.</p>
+                <h4>5. Limitation of Liability</h4>
+                <p>Provided under the MIT License "as is", without warranty of any kind. The project author and contributors are not liable for any communication, agreements, disputes, or outcomes between users and listed enterprises.</p>
+            `;
+        } else if (type === 'privacy') {
+            titleEl.innerHTML = '<i class="fa-solid fa-shield-halved"></i> Privacy Policy & Cookies';
+            bodyEl.innerHTML = `
+                <div class="drawer-badge-callout">
+                    <i class="fa-solid fa-user-shield"></i> <strong>Privacy-First Architecture:</strong> We do not track your identity across the web, require user registration, or sell personal data to advertisers.
+                </div>
+                <h4>1. No Personal Accounts or Registration</h4>
+                <p>This application does not collect your name, email address, password, or profile information. No registration or login is required to use any feature.</p>
+                <h4>2. Device GPS Location</h4>
+                <p>When you click the GPS crosshairs button:</p>
+                <ul>
+                    <li>Your device browser requests permission to access hardware GPS coordinates.</li>
+                    <li>Coordinates are processed strictly in your browser to calculate the search radius and center the map.</li>
+                    <li><strong>Your coordinates and searches are NEVER permanently stored in our MySQL database.</strong> Searches are handled in-memory and streamed back in real-time.</li>
+                </ul>
+                <h4>3. Approximate IP-Based Location</h4>
+                <p>To display your approximate city and country in the footer without prompting for device GPS permissions, an anonymous client-side lookup is performed via public IP geolocation services (<code>ipwho.is</code> / <code>ipapi.co</code>). This is completely anonymous and never logged into our database.</p>
+                <h4>4. Anonymous Session Cookies</h4>
+                <p>This service uses a single anonymous session cookie:</p>
+                <ul>
+                    <li><strong>Cookie Name:</strong> <code>locator_session_id</code></li>
+                    <li><strong>Purpose:</strong> Multi-tenancy isolation. It stores a random 64-character token ensuring that companies you click "Save Lead" on are isolated to your browser session. Other visitors cannot view, modify, or delete your saved leads.</li>
+                    <li><strong>Security:</strong> Protected with <code>HttpOnly</code> and <code>SameSite=Lax</code> security attributes.</li>
+                    <li><strong>Zero Profiling:</strong> It contains no personal identifiers and is never used for advertising or cross-site tracking.</li>
+                </ul>
+                <h4>5. Upstream FOSS Community Providers</h4>
+                <p>Geospatial data is retrieved from OpenStreetMap, Overpass API, and Nominatim. When client-side scraping extracts contact data, requests route through an open CORS proxy to fetch public HTML without accessing user credentials.</p>
+            `;
+        }
+
+        drawer.classList.add('active');
+        backdrop.classList.add('active');
+        drawer.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeRightDrawer() {
+        const drawer = document.getElementById('right-drawer');
+        const backdrop = document.getElementById('right-drawer-backdrop');
+        if (drawer) {
+            drawer.classList.remove('active');
+            drawer.setAttribute('aria-hidden', 'true');
+        }
+        if (backdrop) {
+            backdrop.classList.remove('active');
+        }
+    }
+
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') closeRightDrawer();
+    });
+
+    function detectUserRoughLocation() {
+        const locEl = document.getElementById('user-rough-location');
+        if (!locEl) return;
+
+        fetch('https://ipwho.is/')
+            .then(res => res.json())
+            .then(data => {
+                if (data && data.success && data.city && data.country) {
+                    locEl.textContent = `${data.city}, ${data.country}`;
+                } else {
+                    throw new Error('Fallback needed');
+                }
+            })
+            .catch(() => {
+                fetch('https://ipapi.co/json/')
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data && data.city && data.country_name) {
+                            locEl.textContent = `${data.city}, ${data.country_name}`;
+                        } else {
+                            locEl.textContent = 'Location unavailable';
+                        }
+                    })
+                    .catch(() => {
+                        locEl.textContent = 'Location unavailable';
+                    });
+            });
+    }
+
     window.onload = function() {
         initLeaflet();
         generateCyanFavicon();
+        preloadSavedLeadIds();
+        detectUserRoughLocation();
     };
 </script>
+
+<!-- Right Sliding Drawer Modal for Terms of Use & Privacy Policy -->
+<div id="right-drawer-backdrop" class="right-drawer-backdrop" onclick="closeRightDrawer()"></div>
+<div id="right-drawer" class="right-drawer" aria-hidden="true">
+    <div class="right-drawer-header">
+        <h3 id="right-drawer-title" class="right-drawer-title"><i class="fa-solid fa-file-contract"></i> Terms of Use</h3>
+        <button type="button" class="btn-close-drawer" onclick="closeRightDrawer()" aria-label="Close modal">
+            <i class="fa-solid fa-xmark"></i>
+        </button>
+    </div>
+    <div id="right-drawer-body" class="right-drawer-body"></div>
+</div>
 </body>
 </html>
