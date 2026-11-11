@@ -2237,7 +2237,7 @@ function parsePhoneFromHtml($html) {
                 <ul>
                     <li>Your device browser requests permission to access hardware GPS coordinates.</li>
                     <li>Coordinates are processed strictly in your browser to calculate the search radius and center the map.</li>
-                    <li><strong>Your coordinates and searches are NEVER permanently stored in our MySQL database.</strong> Searches are handled in-memory and streamed back in real-time.</li>
+                    <li><strong>Your coordinates and searches are NEVER permanently stored in our database.</strong> Searches are handled in-memory and streamed back in real-time.</li>
                 </ul>
                 <h4>3. Approximate IP-Based Location</h4>
                 <p>To display your approximate city and country in the footer without prompting for device GPS permissions, an anonymous client-side lookup is performed via public IP geolocation services (<code>ipwho.is</code> / <code>ipapi.co</code>). This is completely anonymous and never logged into our database.</p>
