@@ -42,7 +42,8 @@ The central map displaying your search center and discovered companies.
 ### 3. "Find Industry/Company" Tab (Left Sidebar)
 Displays all the industrial sites, factories, warehouses, and offices found within your search area.
 * **Company Cards**: Shows the company name, distance from you, address, phone number, email, and website link.
-* **Quick Web Search Links**: If contact information is not listed in OSM, quick links to Google, Bing, and Yahoo are provided so you can look it up with one click.
+* **Client-Side Contact Scraping**: When a company lists an official website, the dashboard performs asynchronous client-side scraping in the background (using a CORS proxy) to parse public email addresses and phone numbers directly in your browser.
+* **Quick Web Search Links**: If contact information is still missing from both OSM and the website, quick search buttons for Google, Bing, and Yahoo are available for fast lookup.
 * **Save Lead Button**: Saves the company directly to your database with a single click.
 
 ### 4. "Saved Leads" Tab (Left Sidebar)
@@ -64,11 +65,14 @@ Your personal tracker to manage the companies you want to apply to.
 
 ---
 
-## 🚀 Local Installation & Setup
+## 🚀 Installation & Deployment Flexibility
 
-1. **Clone the repository** into your XAMPP web root directory:
+This project is completely self-contained in a single lightweight PHP script with an auto-provisioning database. It is entirely up to you whether you prefer to self-host it privately on your local development machine or deploy it to a live production environment.
+
+### Local Setup (Self-Hosting via XAMPP)
+1. **Clone the repository** into your local web root directory:
    ```bash
-   cd C:\xampp\htdocs   # Adjust path to match your XAMPP installation (e.g., E:\IT\xampp\htdocs)
+   cd C:\xampp\htdocs   # Adjust path to match your local web server (e.g., E:\IT\xampp\htdocs)
    git clone https://github.com/dnsalcedo01/osm-industries-locator.git thecompany
    ```
 
@@ -78,7 +82,12 @@ Your personal tracker to manage the companies you want to apply to.
 
 3. **Open in Browser**:
    * Visit `http://localhost/osmindustrylocator/` (or your chosen folder name).
-   * The database (`company_locator`) and table (`companies`) will automatically set themselves up on the first visit.
+   * The database (`company_locator`) and table (`companies`) will automatically initialize on the first visit.
+
+### Production Deployment Note
+If deploying to a live production server or VPS:
+* Ensure your web host supports **PHP 7.4+** (with `pdo_mysql` and `curl` extensions enabled) and **MySQL / MariaDB**.
+* Adjust the database credentials (`$host`, `$db`, `$user`, `$pass`) at the top of `index.php` to match your production environment.
 
 ---
 
