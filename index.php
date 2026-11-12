@@ -992,17 +992,17 @@ function parsePhoneFromHtml($html) {
             display: none;
         }
 
-        /* Custom Header Layer Switcher Menu */
+        /* Custom Layer Switcher Menu Inside Map Container */
         #custom-layer-menu {
             position: absolute;
-            top: 52px;
-            right: 20px;
+            top: 15px;
+            right: 15px;
             background: #1e293b;
             border: 1px solid #334155;
-            border-radius: 6px;
+            border-radius: 8px;
             padding: 8px 0;
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
-            z-index: 10002;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6);
+            z-index: 1005;
             display: none;
             min-width: 180px;
         }
@@ -1047,24 +1047,33 @@ function parsePhoneFromHtml($html) {
             align-items: center;
             justify-content: center;
             width: 100%;
-            flex: 1;
         }
         .hero-footer {
+            position: absolute;
+            bottom: 0;
+            left: 0;
             width: 100%;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
             gap: 10px;
-            padding: 16px 20px 22px;
+            padding: 16px 20px 24px;
             z-index: 10;
         }
         .hero-disclaimer-fineprint {
             font-size: 0.75rem;
             color: #64748b;
             text-align: center;
-            max-width: 680px;
+            white-space: nowrap;
+            max-width: none;
             line-height: 1.4;
+        }
+        @media (max-width: 820px) {
+            .hero-disclaimer-fineprint {
+                white-space: normal;
+                max-width: 90%;
+            }
         }
         .hero-footer-links {
             display: flex;
@@ -1250,18 +1259,9 @@ function parsePhoneFromHtml($html) {
         <img src="industry-solid-full.svg" alt="Industry Icon" class="header-icon-svg" id="header-svg-img"> OSM Industries Locator
     </div>
     <div class="nav-actions">
-        <button type="button" class="btn btn-icon-only" onclick="openRightDrawer('terms')" title="Terms of Use">
-            <i class="fa-solid fa-file-contract"></i>
-        </button>
-        <button type="button" class="btn btn-icon-only" onclick="openRightDrawer('privacy')" title="Privacy Policy & Cookies">
-            <i class="fa-solid fa-shield-halved"></i>
-        </button>
         <button id="btn-toggle-layers" class="btn" style="background:#334155;" onclick="toggleMapLayersControl()" title="Change Map Tiles">
             <i class="fa-solid fa-layer-group"></i> Map Layers
         </button>
-        
-        <!-- Custom Layer Options Dropdown Menu -->
-        <div id="custom-layer-menu"></div>
     </div>
 </div>
 
@@ -1302,7 +1302,7 @@ function parsePhoneFromHtml($html) {
                 </a>
                 <span class="footer-separator">•</span>
                 <span class="footer-location-text" id="footer-location-indicator">
-                    <i class="fa-solid fa-location-dot"></i> Your location: <span id="user-rough-location">Detecting...</span>
+                    <i class="fa-solid fa-location-dot"></i> <span id="user-rough-location">Detecting...</span>
                 </span>
             </div>
         </div>
@@ -1366,6 +1366,8 @@ function parsePhoneFromHtml($html) {
     <!-- Map container element for Leaflet interactive maps -->
     <div id="map-wrapper">
         <div id="leaflet-map"></div>
+        <!-- Custom Layer Options Dropdown Menu inside Map Container -->
+        <div id="custom-layer-menu"></div>
     </div>
 </div>
 
