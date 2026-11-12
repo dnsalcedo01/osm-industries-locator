@@ -73,7 +73,7 @@ This project is completely self-contained in a single lightweight PHP script wit
 1. **Clone the repository** into your local web root directory:
    ```bash
    cd C:\xampp\htdocs   # Adjust path to match your local web server (e.g., E:\IT\xampp\htdocs)
-   git clone https://github.com/dnsalcedo01/osm-industries-locator.git thecompany
+   git clone https://github.com/dnsalcedo01/osm-industries-locator.git
    ```
 
 2. **Start Services**:
