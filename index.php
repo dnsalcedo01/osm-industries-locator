@@ -1160,15 +1160,20 @@ function parsePhoneFromHtml($html) {
             height: 100vh;
             background: #1e293b;
             border-left: 1px solid #334155;
-            box-shadow: -8px 0 30px rgba(0, 0, 0, 0.6);
+            box-shadow: none;
             z-index: 20001;
             display: flex;
             flex-direction: column;
             transform: translateX(100%);
-            transition: transform 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+            visibility: hidden;
+            pointer-events: none;
+            transition: transform 0.32s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.32s, box-shadow 0.32s;
         }
         .right-drawer.active {
             transform: translateX(0);
+            visibility: visible;
+            pointer-events: auto;
+            box-shadow: -8px 0 30px rgba(0, 0, 0, 0.6);
         }
 
         .right-drawer-header {
