@@ -2225,7 +2225,7 @@ function parsePhoneFromHtml($html) {
             titleEl.innerHTML = '<i class="fa-solid fa-file-contract"></i> Terms of Use';
             bodyEl.innerHTML = `
                 <div class="drawer-badge-callout">
-                    <i class="fa-solid fa-circle-info"></i> <strong>Academic & Professional Utility:</strong> This platform is designed to assist students and trainees in finding legitimate companies for Supervised In-Plant Training (SIPT) and On-the-Job Training (OJT).
+                    <i class="fa-solid fa-circle-info"></i> <strong>Academic & Professional Utility:</strong> This platform is designed to assist students and trainees in finding legitimate companies.
                 </div>
                 <h4>1. Intended & Permitted Purpose</h4>
                 <p>This service is provided strictly for educational and personal career advancement—specifically enabling students to research industrial plants, tech offices, and factories within their locale for internship opportunities.</p>
@@ -2268,9 +2268,7 @@ function parsePhoneFromHtml($html) {
                 <h4>4. Anonymous Session Cookies</h4>
                 <p>This service uses a single anonymous session cookie:</p>
                 <ul>
-                    <li><strong>Cookie Name:</strong> <code>locator_session_id</code></li>
                     <li><strong>Purpose:</strong> Multi-tenancy isolation. It stores a random 64-character token ensuring that companies you click "Save Lead" on are isolated to your browser session. Other visitors cannot view, modify, or delete your saved leads.</li>
-                    <li><strong>Security:</strong> Protected with <code>HttpOnly</code> and <code>SameSite=Lax</code> security attributes.</li>
                     <li><strong>Zero Profiling:</strong> It contains no personal identifiers and is never used for advertising or cross-site tracking.</li>
                 </ul>
                 <h4>5. Upstream FOSS Community Providers</h4>
