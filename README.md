@@ -4,7 +4,8 @@ An automated, radius-based industrial locator and contact discovery dashboard cr
 
 Built with **PHP**, **MySQL**, **Leaflet.js**, and the **OpenStreetMap (OSM)** ecosystem (Overpass API and Nominatim).
 
-<img width="1731" height="800" alt="image" src="https://github.com/user-attachments/assets/3c894442-0a2b-471c-982c-dd3568633a88" />
+<img width="1731" height="800" alt="image" src="https://github.com/user-attachments/assets/d31ece92-36f4-4b72-953c-591ba8d3ba13" />
+
 
 ---
 
