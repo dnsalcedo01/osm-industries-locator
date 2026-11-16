@@ -24,3 +24,6 @@ jobs:
           **/.github*/**
           **/README.md
           **/*.sql
+          **/config.php
+          **/config.production.php
+          **/client-side-ver/**
