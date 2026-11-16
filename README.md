@@ -89,7 +89,8 @@ This project is completely self-contained in a single lightweight PHP script wit
 ### Production Deployment Note
 If deploying to a live production server or VPS:
 * Ensure your web host supports **PHP 7.4+** (with `pdo_mysql` and `curl` extensions enabled) and **MySQL / MariaDB**.
-* Adjust the database credentials (`$host`, `$db`, `$user`, `$pass`) at the top of `index.php` to match your production environment.
+* Copy `config.example.php` to `config.php` (or use `config.production.php` as a guide) and fill in your live database credentials.
+* `config.php` is protected by `.gitignore` and excluded from automated FTP deployment, ensuring your production credentials are never overwritten or exposed publicly.
 
 ---
 

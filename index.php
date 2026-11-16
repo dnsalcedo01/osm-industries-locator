@@ -16,14 +16,23 @@ if (empty($_COOKIE[$cookieName]) || !preg_match('/^[a-f0-9]{64}$/', $_COOKIE[$co
     $sessionId = $_COOKIE[$cookieName];
 }
 
-// Database Configuration
-$host = 'localhost';
-$db   = 'company_locator';
-$user = 'root';
-$pass = ''; 
-$charset = 'utf8mb4';
+// Database Configuration (Loads from config.php with fallback to local development defaults)
+if (file_exists(__DIR__ . '/config.php')) {
+    $config = require __DIR__ . '/config.php';
+    $host    = $config['db_host'] ?? 'localhost';
+    $db      = $config['db_name'] ?? 'industry_locator';
+    $user    = $config['db_user'] ?? 'root';
+    $pass    = $config['db_pass'] ?? ''; 
+    $charset = $config['db_charset'] ?? 'utf8mb4';
+} else {
+    // Default fallback (local development / XAMPP)
+    $host    = 'localhost';
+    $db      = 'industry_locator';
+    $user    = 'root';
+    $pass    = ''; 
+    $charset = 'utf8mb4';
+}
 
-$dsn = "mysql:host=$host;charset=$charset";
 $options = [
     PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
@@ -31,9 +40,17 @@ $options = [
 ];
 
 try {
-    $pdo = new PDO($dsn, $user, $pass, $options);
-    $pdo->exec("CREATE DATABASE IF NOT EXISTS `$db` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-    $pdo->exec("USE `$db` ");
+    // Connect directly to the specified database (standard on production & local)
+    $dsn = "mysql:host=$host;dbname=$db;charset=$charset";
+    try {
+        $pdo = new PDO($dsn, $user, $pass, $options);
+    } catch (\PDOException $dbNotFoundException) {
+        // If database does not exist yet (common on fresh local XAMPP), connect without dbname to create it
+        $dsnWithoutDb = "mysql:host=$host;charset=$charset";
+        $pdo = new PDO($dsnWithoutDb, $user, $pass, $options);
+        $pdo->exec("CREATE DATABASE IF NOT EXISTS `$db` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+        $pdo->exec("USE `$db` ");
+    }
     $pdo->exec("CREATE TABLE IF NOT EXISTS companies (
         id INT AUTO_INCREMENT PRIMARY KEY,
         session_id VARCHAR(64) NOT NULL DEFAULT '',
