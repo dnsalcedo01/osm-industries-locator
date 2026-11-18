@@ -1,10 +1,11 @@
+<img width="1731" height="800" alt="image" src="https://github.com/user-attachments/assets/e4399752-9c74-4f81-aa41-ba8752863ef0" />
+
 # OSM Industries Locator Dashboard
 
 An automated, radius-based industrial locator and contact discovery dashboard created to help students and trainees easily find company opportunities for **Supervised In-Plant Training (SIPT)** or **On-the-Job Training (OJT)**.
 
 Built with **PHP**, **MySQL**, **Leaflet.js**, and the **OpenStreetMap (OSM)** ecosystem (Overpass API and Nominatim).
 
-<img width="1731" height="800" alt="image" src="https://github.com/user-attachments/assets/3c894442-0a2b-471c-982c-dd3568633a88" />
 
 ---
 
