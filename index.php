@@ -1314,7 +1314,7 @@ function parsePhoneFromHtml($html) {
         <div class="hero-center-content">
             <div class="hero-brand">
                 <img src="industry-solid-full.svg" alt="Industry Icon"> OSM Industries Locator
-                <span class="brand-alpha-badge" title="Alpha Release: This platform is in early development and active testing. You may encounter unexpected bugs, incomplete contact data, or temporary service interruptions.">ALPHA</span>
+                <span class="brand-alpha-badge" title="Alpha Release: In early development and active testing. You may encounter unexpected bugs, incomplete contact data, or temporary service interruptions.">ALPHA</span>
             </div>
             <div class="hero-search-bar">
                 <div class="hero-input-wrapper">
