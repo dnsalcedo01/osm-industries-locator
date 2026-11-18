@@ -758,6 +758,27 @@ function parsePhoneFromHtml($html) {
             height: 32px;
             filter: invert(62%) sepia(85%) saturate(1637%) hue-rotate(167deg) brightness(101%) contrast(97%);
         }
+        .brand-alpha-badge {
+            font-size: 0.65rem;
+            font-weight: 700;
+            letter-spacing: 0.6px;
+            text-transform: uppercase;
+            padding: 3px 8px;
+            border-radius: 9999px;
+            background: rgba(2, 132, 199, 0.18);
+            color: #38bdf8;
+            border: 1px solid rgba(56, 189, 248, 0.4);
+            cursor: help;
+            user-select: none;
+            line-height: 1;
+            transition: all 0.2s ease;
+        }
+        .brand-alpha-badge:hover {
+            background: rgba(56, 189, 248, 0.25);
+            border-color: #38bdf8;
+            color: #7dd3fc;
+            box-shadow: 0 0 10px rgba(56, 189, 248, 0.3);
+        }
 
         .hero-search-bar {
             display: flex;
@@ -1293,6 +1314,7 @@ function parsePhoneFromHtml($html) {
         <div class="hero-center-content">
             <div class="hero-brand">
                 <img src="industry-solid-full.svg" alt="Industry Icon"> OSM Industries Locator
+                <span class="brand-alpha-badge" title="Alpha Release: This platform is in early development and active testing. You may encounter unexpected bugs, incomplete contact data, or temporary service interruptions.">ALPHA</span>
             </div>
             <div class="hero-search-bar">
                 <div class="hero-input-wrapper">
