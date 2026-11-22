@@ -2,7 +2,7 @@
 
 # OSM Industries Locator Dashboard
 
-An automated, radius-based industrial locator and contact discovery dashboard created to help students and trainees easily find company opportunities for **Supervised In-Plant Training (SIPT)** or **On-the-Job Training (OJT)**.
+An automated, radius-based industries locator and contact discovery dashboard created to help students and trainees easily find company opportunities for **Supervised In-Plant Training (SIPT)** or **On-the-Job Training (OJT)**.
 
 Built with **PHP**, **MySQL**, **Leaflet.js**, and the **OpenStreetMap (OSM)** ecosystem (Overpass API and Nominatim).
 
@@ -37,6 +37,8 @@ The initial screen when you first open the dashboard.
 * **Search Button**: Starts the search and transitions into the interactive map view.
 
 ### 2. Interactive Map
+<img width="1731" height="800" alt="image" src="https://github.com/user-attachments/assets/3043252c-6b5f-49bd-89dd-9cd4eda2332f" />
+
 The central map displaying your search center and discovered companies.
 * **Center Marker & Blue Radius Circle**: Shows your location and visualizes your search boundary.
 * **Company Pins**: Every discovered company appears as a clickable pin. Clicking a pin highlights its information in the sidebar and opens a popup with its name and address.
