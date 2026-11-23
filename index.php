@@ -135,28 +135,21 @@ if ($action === 'search_osm') {
 
     $results = [];
     $seen = [];
+    $scrapedCount = 0;
 
-    // Complete, Broadened & Optimized Overpass QL Query with 60s Timeout & Memory Buffer for High-Density Urban Areas
-    $overpassQuery = "[out:json][timeout:60][maxsize:1073741824];
+    // High-performance Overpass QL Query using 'nwr' (node, way, relation)
+    // Captures all industrial facilities, factories, plants, and commercial buildings within radius
+    $overpassQuery = "[out:json][timeout:25];
     (
-      node(around:$radius,$lat,$lng)['office'];
-      way(around:$radius,$lat,$lng)['office'];
-      node(around:$radius,$lat,$lng)['industrial'];
-      way(around:$radius,$lat,$lng)['industrial'];
-      node(around:$radius,$lat,$lng)['landuse'='industrial'];
-      way(around:$radius,$lat,$lng)['landuse'='industrial'];
-      node(around:$radius,$lat,$lng)['landuse'='commercial'];
-      way(around:$radius,$lat,$lng)['landuse'='commercial'];
-      node(around:$radius,$lat,$lng)['man_made'];
-      way(around:$radius,$lat,$lng)['man_made'];
-      node(around:$radius,$lat,$lng)['building'~'industrial|warehouse|office|manufacture'];
-      way(around:$radius,$lat,$lng)['building'~'industrial|warehouse|office|manufacture'];
-      node(around:$radius,$lat,$lng)['craft'];
-      way(around:$radius,$lat,$lng)['craft'];
-      node(around:$radius,$lat,$lng)['amenity'~'factory|company|warehouse|logistics'];
-      way(around:$radius,$lat,$lng)['amenity'~'factory|company|warehouse|logistics'];
+      nwr(around:$radius,$lat,$lng)['landuse'='industrial'];
+      nwr(around:$radius,$lat,$lng)['industrial'];
+      nwr(around:$radius,$lat,$lng)['man_made'='works'];
+      nwr(around:$radius,$lat,$lng)['building'~'industrial|warehouse|factory|commercial'];
+      nwr(around:$radius,$lat,$lng)['office'];
+      nwr(around:$radius,$lat,$lng)['amenity'~'factory|company|warehouse|logistics'];
+      nwr(around:$radius,$lat,$lng)['craft'~'electronics|metal|carpenter|sawmill|electrician|plumber|welder|hvac|roofer|scaffolder|stonemason|winery|brewery|distillery'];
     );
-    out center body 250;";
+    out center body 300;";
 
     $data = executeOverpassQuery($overpassQuery);
 
@@ -168,15 +161,65 @@ if ($action === 'search_osm') {
 
             $amenity = $tags['amenity'] ?? '';
             $shop = $tags['shop'] ?? '';
+            $office = $tags['office'] ?? '';
             $highway = $tags['highway'] ?? '';
             $publicTransport = $tags['public_transport'] ?? '';
-            
-            // Exclude non-industrial consumer spots
-            if (in_array($amenity, ['bus_station', 'taxi', 'ferry_terminal', 'car_sharing', 'cafe', 'restaurant', 'fast_food', 'pharmacy']) ||
+            $craft = $tags['craft'] ?? '';
+            $tourism = $tags['tourism'] ?? '';
+            $leisure = $tags['leisure'] ?? '';
+
+            // --- Tier 1: Hard-exclude non-industrial offices, small businesses & consumer entities ---
+            $hardExcludeOffice = [
+                'government', 'religion', 'educational_institution', 'school',
+                'water_utility', 'energy_supplier', 'courier', 'association',
+                'ngo', 'political_party', 'lawyer', 'notary', 'therapist',
+                'physician', 'doctor', 'estate_agent', 'realtor', 'travel_agent', 'employment_agency'
+            ];
+            $hardExcludeAmenity = ['bus_station', 'taxi', 'ferry_terminal', 'car_sharing', 'pharmacy',
+                'school', 'kindergarten', 'college', 'university', 'hospital', 'clinic', 'dentist', 'veterinary',
+                'place_of_worship', 'bar', 'pub', 'nightclub', 'cinema', 'theatre',
+                'library', 'community_centre', 'social_facility', 'fire_station', 'police',
+                'post_office', 'bank', 'atm', 'fuel', 'parking', 'car_wash', 'car_rental',
+                'townhall', 'courthouse', 'embassy'];
+            $hardExcludeShop = ['bakery', 'pastry', 'butcher', 'florist', 'clothes', 'shoes',
+                'hairdresser', 'beauty', 'optician', 'jewelry', 'gift', 'toys',
+                'pet', 'bicycle', 'mobile_phone', 'books', 'stationery', 'newsagent',
+                'alcohol', 'tobacco', 'lottery', 'laundry', 'dry_cleaning', 'tailor',
+                'greengrocer', 'deli', 'seafood', 'cheese', 'tea', 'coffee', 'confectionery',
+                'kiosk', 'variety_store'];
+            $hardExcludeCraft = ['bakery', 'confectionery', 'pottery', 'jeweller', 'shoemaker',
+                'tailor', 'dressmaker', 'photographer', 'painter', 'basket_maker',
+                'beekeeper', 'florist'];
+
+            // Name pattern guard for non-industrial entities mapped with generic tags
+            $nameExclusionRegex = '/\b(church|chapel|cathedral|mosque|temple|parish|ministry|fellowship|barangay|sangguniang|water district|elementary school|high school|seminary|police station)\b/i';
+
+            if (in_array($office, $hardExcludeOffice) ||
+                in_array($amenity, $hardExcludeAmenity) ||
+                in_array($shop, $hardExcludeShop) ||
+                in_array($craft, $hardExcludeCraft) ||
                 in_array($publicTransport, ['station', 'stop_position', 'platform']) ||
-                in_array($shop, ['supermarket', 'convenience', 'clothes', 'bakery']) ||
-                $highway === 'bus_stop') {
+                !empty($tags['government']) ||
+                !empty($tags['religion']) ||
+                !empty($tags['healthcare']) ||
+                !empty($tags['military']) ||
+                !empty($tourism) || !empty($leisure) ||
+                $highway === 'bus_stop' ||
+                preg_match($nameExclusionRegex, $name)) {
                 continue;
+            }
+
+            // --- Tier 2: Soft-filter for food/retail chains ---
+            // Allow cafes, restaurants, supermarkets, convenience stores ONLY if they are
+            // recognizable brands (OSM brand/wikidata tags present). Deprioritize to end of results.
+            $isSoftCategory = false;
+            if (in_array($amenity, ['cafe', 'restaurant', 'fast_food']) ||
+                in_array($shop, ['supermarket', 'convenience'])) {
+                $hasBrand = !empty($tags['brand']) || !empty($tags['brand:wikidata']) || !empty($tags['wikidata']);
+                if (!$hasBrand) {
+                    continue; // Skip unknown/small food & retail businesses
+                }
+                $isSoftCategory = true;
             }
 
             $eLat = $element['lat'] ?? ($element['center']['lat'] ?? 0);
@@ -210,14 +253,15 @@ if ($action === 'search_osm') {
                 if ($phone === 'N/A') $phone = extractContactFromWeb($website, 'phone');
             } 
             
-            if ($email === 'N/A' || $phone === 'N/A' || empty($website)) {
+            if (($email === 'N/A' || $phone === 'N/A' || empty($website)) && $scrapedCount < 5) {
                 $scrapedDetails = crossCheckCompanyDetails($name, $address);
                 if (empty($website) && !empty($scrapedDetails['website'])) $website = $scrapedDetails['website'];
                 if ($email === 'N/A' && !empty($scrapedDetails['email'])) $email = $scrapedDetails['email'];
                 if ($phone === 'N/A' && !empty($scrapedDetails['phone'])) $phone = $scrapedDetails['phone'];
+                $scrapedCount++;
             }
 
-            $category = $tags['office'] ?? $tags['industrial'] ?? $tags['man_made'] ?? $tags['building'] ?? $tags['craft'] ?? 'Industrial Facility';
+            $category = $tags['industrial'] ?? $tags['man_made'] ?? $tags['building'] ?? $tags['craft'] ?? $tags['company'] ?? $tags['product'] ?? $tags['office'] ?? $tags['power'] ?? $tags['amenity'] ?? $tags['shop'] ?? 'Industrial Facility';
 
             $results[] = [
                 'id' => 'osm_' . $element['id'],
@@ -229,7 +273,8 @@ if ($action === 'search_osm') {
                 'email' => $email,
                 'website' => $website,
                 'category' => ucfirst(str_replace('_', ' ', $category)),
-                'distance' => round($dist)
+                'distance' => round($dist),
+                '_deprioritized' => $isSoftCategory
             ];
         }
     }
@@ -273,6 +318,31 @@ if ($action === 'search_osm') {
                     if (isset($seen[$dedupeKey])) continue;
                     $seen[$dedupeKey] = true;
 
+                    // --- Filter non-industrial Nominatim results ---
+                    $nomClass = $item['class'] ?? '';
+                    $nomType = $item['type'] ?? '';
+                    $nomHardExclude = ['bakery', 'pastry', 'butcher', 'florist', 'hairdresser', 'beauty',
+                        'clothes', 'shoes', 'optician', 'jewelry', 'gift', 'toys', 'bicycle',
+                        'confectionery', 'kiosk', 'greengrocer', 'deli', 'seafood',
+                        'bus_station', 'bus_stop', 'parking', 'fuel', 'atm',
+                        'school', 'kindergarten', 'college', 'university', 'hospital', 'clinic', 'place_of_worship',
+                        'townhall', 'courthouse', 'police', 'fire_station', 'post_office', 'bank',
+                        'government', 'religion', 'educational_institution', 'water_utility', 'energy_supplier',
+                        'courier', 'association', 'ngo',
+                        'bar', 'pub', 'nightclub', 'residential', 'house', 'apartments',
+                        'detached', 'semidetached_house', 'terrace'];
+                    $nomNameGuard = '/\b(church|chapel|cathedral|mosque|temple|parish|ministry|fellowship|barangay|sangguniang|water district|elementary school|high school|seminary|police station)\b/i';
+                    if (in_array($nomType, $nomHardExclude) || $nomClass === 'highway' || $nomClass === 'tourism' || $nomClass === 'leisure' || preg_match($nomNameGuard, $title)) {
+                        continue;
+                    }
+                    $nomIsSoft = false;
+                    if (in_array($nomType, ['cafe', 'restaurant', 'fast_food', 'supermarket', 'convenience'])) {
+                        $nomExtraTags = $item['extratags'] ?? [];
+                        $nomHasBrand = !empty($nomExtraTags['brand']) || !empty($nomExtraTags['brand:wikidata']) || !empty($nomExtraTags['wikidata']);
+                        if (!$nomHasBrand) continue;
+                        $nomIsSoft = true;
+                    }
+
                     $addressStr = implode(',', array_slice($parts, 1, 3));
                     $extraTags = $item['extratags'] ?? [];
                     
@@ -297,16 +367,24 @@ if ($action === 'search_osm') {
                         'email' => $email,
                         'website' => $website,
                         'category' => ucfirst($item['type'] ?? 'Industrial Site'),
-                        'distance' => round($dist)
+                        'distance' => round($dist),
+                        '_deprioritized' => $nomIsSoft
                     ];
                 }
             }
         }
     }
 
+    // Sort: Industrial results first by distance, then deprioritized brand chains at the end
     usort($results, function($a, $b) {
+        $aDep = $a['_deprioritized'] ?? false;
+        $bDep = $b['_deprioritized'] ?? false;
+        if ($aDep !== $bDep) return $aDep ? 1 : -1;
         return $a['distance'] - $b['distance'];
     });
+
+    // Clean internal tracking field before sending to client
+    $results = array_map(function($r) { unset($r['_deprioritized']); return $r; }, $results);
 
     echo json_encode(['status' => 'success', 'count' => count($results), 'data' => array_slice($results, 0, 100)]);
     exit;
@@ -427,11 +505,11 @@ if ($action === 'proxy_scrape') {
 // Helper Functions
 function executeOverpassQuery($query) {
     $servers = [
+        "https://overpass.openstreetmap.fr/api/interpreter",
         "https://overpass-api.de/api/interpreter",
-        "https://overpass.kumi.systems/api/interpreter",
-        "https://overpass.nchc.org.tw/api/interpreter",
+        "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
         "https://overpass.private.coffee/api/interpreter",
-        "https://maps.mail.ru/osm/tools/overpass/api/interpreter"
+        "https://overpass.kumi.systems/api/interpreter"
     ];
 
     foreach ($servers as $url) {
@@ -440,8 +518,9 @@ function executeOverpassQuery($query) {
         curl_setopt($ch, CURLOPT_POST, 1);
         curl_setopt($ch, CURLOPT_POSTFIELDS, "data=" . urlencode($query));
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 12);
-        curl_setopt($ch, CURLOPT_USERAGENT, "OSMIndustriesLocator/10.0 (https://openstreetmap.org)");
+        curl_setopt($ch, CURLOPT_TIMEOUT, 18);
+        curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+        curl_setopt($ch, CURLOPT_USERAGENT, "OSMIndustriesLocator/2.0");
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
@@ -1829,15 +1908,32 @@ function parsePhoneFromHtml($html) {
         }
 
         const listContainer = document.getElementById('results-list');
-        listContainer.innerHTML = '<p style="text-align:center; color:#38bdf8; margin-top:20px;"><i class="fa-solid fa-spinner fa-spin"></i> Searching industrial sites...</p>';
+        const loadingMessages = [
+            'Searching nearby industries...',
+            'Gathering company locations on map...',
+            'Looking up available public contact info...',
+            'Still searching, this might take a moment...'
+        ];
+        let msgIndex = 0;
+        listContainer.innerHTML = `<p style="text-align:center; color:#38bdf8; margin-top:20px;"><i class="fa-solid fa-spinner fa-spin"></i> <span id="searchStatusText">${loadingMessages[0]}</span></p>`;
+
+        const searchTimer = setInterval(() => {
+            msgIndex++;
+            const statusEl = document.getElementById('searchStatusText');
+            if (statusEl && msgIndex < loadingMessages.length) {
+                statusEl.textContent = loadingMessages[msgIndex];
+            }
+        }, 3000);
 
         fetch(`index.php?action=search_osm&lat=${currentCoords.lat}&lng=${currentCoords.lng}&radius=${radius}`)
             .then(res => res.json())
             .then(data => {
+                clearInterval(searchTimer);
                 searchResultsCache = data;
                 renderSearchResults(data, radius);
             })
             .catch(err => {
+                clearInterval(searchTimer);
                 console.error(err);
                 listContainer.innerHTML = '<p style="text-align:center; color:#f87171; margin-top:20px;">Error searching nearby companies.</p>';
             });
