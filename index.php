@@ -1300,6 +1300,7 @@ function parsePhoneFromHtml($html) {
 <div id="navbar" style="display: none;">
     <div class="brand-logo" onclick="resetToMainSearchPage()" title="Return to Main Search Page">
         <img src="industry-solid-full.svg" alt="Industry Icon" class="header-icon-svg" id="header-svg-img"> OSM Industries Locator
+        <span class="brand-alpha-badge" title="Alpha Release: In early development and active testing. You may encounter unexpected bugs, incomplete contact data, or temporary service interruptions.">ALPHA</span>
     </div>
     <div class="nav-actions">
         <button id="btn-toggle-layers" class="btn" style="background:#334155;" onclick="toggleMapLayersControl()" title="Change Map Tiles">
