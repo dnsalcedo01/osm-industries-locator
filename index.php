@@ -1601,6 +1601,7 @@ function parsePhoneFromHtml($html) {
 
     function switchTab(tab) {
         document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+        unhighlightActiveCompany();
         if (tab === 'search') {
             document.querySelectorAll('.tab-btn')[0].classList.add('active');
             document.getElementById('tab-search').style.display = 'flex';
@@ -1690,6 +1691,11 @@ function parsePhoneFromHtml($html) {
         });
 
         renderCustomLayerMenu();
+
+        // Unhighlight any active company marker when clicking empty map areas
+        leafletMap.on('click', function(e) {
+            unhighlightActiveCompany();
+        });
 
         // Close dropdown when clicking outside
         document.addEventListener('click', function(e) {
@@ -1891,15 +1897,28 @@ function parsePhoneFromHtml($html) {
         }
     }
 
-    function searchNearbyCompanies() {
-        const radius = parseInt(document.getElementById('radius').value, 10);
-        
-        // Always reset existing markers on new search to avoid lingering markers outside radius
+    function unhighlightActiveCompany() {
+        if (activeHighlightedMarkerId && companyMarkerMap[activeHighlightedMarkerId]) {
+            companyMarkerMap[activeHighlightedMarkerId].setIcon(companyIcon);
+            activeHighlightedMarkerId = null;
+        }
+        document.querySelectorAll('.company-card').forEach(c => c.classList.remove('card-highlighted'));
+    }
+
+    function clearCompanyMarkers() {
+        unhighlightActiveCompany();
         companyMarkers.forEach(m => {
             if (leafletMap) leafletMap.removeLayer(m);
         });
         companyMarkers = [];
         companyMarkerMap = {};
+    }
+
+    function searchNearbyCompanies() {
+        const radius = parseInt(document.getElementById('radius').value, 10);
+        
+        // Always reset existing markers on new search to avoid lingering markers outside radius
+        clearCompanyMarkers();
 
         // Firmly anchor search circle to current coordinates
         if (leafletCircle) {
@@ -1940,9 +1959,38 @@ function parsePhoneFromHtml($html) {
             });
     }
 
-    function zoomToCompany(id, lat, lng) {
-        if (leafletMap && companyMarkerMap[id]) {
-            // Reset previous active marker icon
+    function zoomToCompany(id, lat, lng, name, address) {
+        if (!leafletMap) return;
+
+        // If clicking the already highlighted company -> toggle it OFF ("unclick" / unfocus)
+        if (activeHighlightedMarkerId === id) {
+            unhighlightActiveCompany();
+            if (companyMarkerMap[id]) {
+                companyMarkerMap[id].closePopup();
+            }
+            return;
+        }
+
+        // If marker doesn't exist on map (e.g. from Saved Leads), create it dynamically
+        if (!companyMarkerMap[id] && !isNaN(lat) && !isNaN(lng)) {
+            const markerName = name || 'Company';
+            const markerAddr = address || '';
+            const marker = L.marker([lat, lng], { icon: companyIcon }).addTo(leafletMap)
+                .bindPopup(`<b>${escapeHtml(markerName)}</b><br>${escapeHtml(markerAddr)}`);
+            marker.on('click', () => {
+                zoomToCompany(id, lat, lng, markerName, markerAddr);
+            });
+            marker.on('popupclose', () => {
+                if (activeHighlightedMarkerId === id) {
+                    unhighlightActiveCompany();
+                }
+            });
+            companyMarkers.push(marker);
+            companyMarkerMap[id] = marker;
+        }
+
+        if (companyMarkerMap[id]) {
+            // Reset previous active marker icon if different
             if (activeHighlightedMarkerId && companyMarkerMap[activeHighlightedMarkerId]) {
                 companyMarkerMap[activeHighlightedMarkerId].setIcon(companyIcon);
             }
@@ -2047,6 +2095,8 @@ function parsePhoneFromHtml($html) {
     }
 
     function renderSearchResults(data, radius) {
+        clearCompanyMarkers();
+
         const listContainer = document.getElementById('results-list');
         listContainer.innerHTML = '';
         if (!data.data || data.data.length === 0) {
@@ -2067,7 +2117,14 @@ function parsePhoneFromHtml($html) {
             
             // Map pin click handler -> syncs to sidebar
             marker.on('click', () => {
-                zoomToCompany(company.id, company.lat, company.lng);
+                zoomToCompany(company.id, company.lat, company.lng, company.name, company.address);
+            });
+
+            // Revert green highlight when popup is closed (unfocusing)
+            marker.on('popupclose', () => {
+                if (activeHighlightedMarkerId === company.id) {
+                    unhighlightActiveCompany();
+                }
             });
 
             companyMarkers.push(marker);
@@ -2102,7 +2159,7 @@ function parsePhoneFromHtml($html) {
             card.id = `card-${company.id}`;
             card.onclick = (e) => {
                 if (e.target.tagName !== 'BUTTON' && e.target.tagName !== 'A' && !e.target.closest('button') && !e.target.closest('a')) {
-                    zoomToCompany(company.id, company.lat, company.lng);
+                    zoomToCompany(company.id, company.lat, company.lng, company.name, company.address);
                 }
             };
             card.innerHTML = `
@@ -2267,9 +2324,10 @@ function parsePhoneFromHtml($html) {
 
                     const card = document.createElement('div');
                     card.className = 'company-card';
+                    card.id = `card-${lead.place_id}`;
                     card.onclick = (e) => {
                         if (e.target.tagName !== 'SELECT' && e.target.tagName !== 'BUTTON' && e.target.tagName !== 'A' && !e.target.closest('button') && !e.target.closest('a')) {
-                            zoomToCompany(lead.place_id, parseFloat(lead.latitude), parseFloat(lead.longitude));
+                            zoomToCompany(lead.place_id, parseFloat(lead.latitude), parseFloat(lead.longitude), lead.name, lead.address);
                         }
                     };
 
