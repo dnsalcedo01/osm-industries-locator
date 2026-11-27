@@ -1781,13 +1781,20 @@ function parsePhoneFromHtml($html) {
         if ("geolocation" in navigator) {
             const geoOptions = { 
                 enableHighAccuracy: true, 
-                timeout: 30000, 
+                timeout: 20000, 
                 maximumAge: 0 
             };
 
             let watchId = null;
+            let locked = false;
+
             const processPosition = (pos) => {
-                if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+                if (locked) return;
+                locked = true;
+                if (watchId !== null) {
+                    navigator.geolocation.clearWatch(watchId);
+                    watchId = null;
+                }
 
                 currentCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
                 document.getElementById('addressSearch').value = '';
@@ -1809,27 +1816,33 @@ function parsePhoneFromHtml($html) {
                 showToast('Hardware GPS position locked!');
             };
 
-            // Use watchPosition to ensure the browser locks onto actual hardware location on the 1st click
+            const handleGeoError = (geoErr) => {
+                if (locked) return;
+                locked = true;
+                if (watchId !== null) {
+                    navigator.geolocation.clearWatch(watchId);
+                    watchId = null;
+                }
+                console.warn('Hardware GPS Error:', geoErr);
+                showToast('GPS Lock Failed: Please allow browser location permissions.');
+                if (heroStatus && fromHero) {
+                    heroStatus.innerHTML = '<span style="color:#f87171;"><i class="fa-solid fa-triangle-exclamation"></i> GPS position unavailable. Please enter a location manually.</span>';
+                }
+                if (listContainer) {
+                    listContainer.innerHTML = '<p style="text-align:center; color:#f87171; margin-top:20px;">Hardware GPS lock failed. Enter location manually.</p>';
+                }
+            };
+
+            // Use watchPosition to acquire hardware GPS fix, locking as soon as hardware provides it
             watchId = navigator.geolocation.watchPosition(
                 pos => {
-                    if (pos.coords.accuracy <= 2500) {
-                        processPosition(pos);
-                    }
+                    processPosition(pos);
                 },
                 err => {
                     // Fallback to getCurrentPosition if watch times out
                     navigator.geolocation.getCurrentPosition(
                         processPosition,
-                        geoErr => {
-                            console.warn('Hardware GPS Error:', geoErr);
-                            showToast('GPS Lock Failed: Please allow browser location permissions.');
-                            if (heroStatus && fromHero) {
-                                heroStatus.innerHTML = '<span style="color:#f87171;"><i class="fa-solid fa-triangle-exclamation"></i> GPS position unavailable. Please enter a location manually.</span>';
-                            }
-                            if (listContainer) {
-                                listContainer.innerHTML = '<p style="text-align:center; color:#f87171; margin-top:20px;">Hardware GPS lock failed. Enter location manually.</p>';
-                            }
-                        },
+                        handleGeoError,
                         geoOptions
                     );
                 },
